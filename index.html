@@ -821,6 +821,18 @@ input.fi::placeholder, textarea.fi::placeholder { color: var(--text3); }
   </div>
 </div>
 
+<!-- ══════════ LOGGED OUT ══════════ -->
+<div id="screen-loggedout" class="screen">
+  <div style="flex:1;overflow-y:auto">
+    <div class="pending-box">
+      <div class="pending-ico">👋</div>
+      <div class="pending-title">Sesión cerrada</div>
+      <div class="pending-text">Has cerrado sesión correctamente.</div>
+      <button class="btn btn-primary" style="width:auto;padding:12px 32px;margin-top:8px" onclick="showScreen('screen-login')">Volver al inicio</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══════════ PENDING ══════════ -->
 <div id="screen-pending" class="screen">
   <div style="flex:1;overflow-y:auto">
@@ -1202,7 +1214,14 @@ function showAdminScreen() {
    AUTH
 ══════════════════════════ */
 auth.onAuthStateChanged(async user => {
-  if (!user) { me = meData = null; showScreen('screen-login'); return; }
+  if (!user) {
+    me = meData = null;
+    // Only redirect to login if not already on loggedout screen
+    if (!document.getElementById('screen-loggedout').classList.contains('active')) {
+      showScreen('screen-login');
+    }
+    return;
+  }
   me = user;
   try {
     let snap = await db.collection('users').doc(user.uid).get();
@@ -1349,8 +1368,14 @@ async function submitRequest() {
 }
 
 async function doLogout() {
+  if (!confirm('¿Seguro que quieres cerrar sesión?')) return;
   if (unsubHyd) unsubHyd();
+  // Mark offline in Firestore
+  if (me) {
+    try { await db.collection('users').doc(me.uid).update({ online: false }); } catch(e) {}
+  }
   await auth.signOut();
+  showScreen('screen-loggedout');
 }
 
 /* ══════════════════════════

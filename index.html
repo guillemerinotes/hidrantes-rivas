@@ -14,6 +14,9 @@
   <link rel="apple-touch-icon" href="icon-192.jpg">
   <meta name="apple-mobile-web-app-title" content="Hidrantes Rivas PC">
   <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://unpkg.com" crossorigin>
+  <link rel="dns-prefetch" href="https://firestore.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=DM+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 
@@ -27,6 +30,10 @@
 
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- MarkerCluster -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
 
 <style>
@@ -622,6 +629,22 @@ input.fi::placeholder, textarea.fi::placeholder { color: var(--text3); }
 }
 .sector-tooltip::before { display: none !important; }
 
+.leaflet-zoom-anim .leaflet-zoom-animated {
+  will-change: transform;
+}
+.leaflet-tile-container {
+  will-change: transform;
+}
+.leaflet-cluster-anim .leaflet-marker-icon,
+.leaflet-zoom-anim .leaflet-zoom-animated {
+  will-change: transform;
+}
+.leaflet-tile-container {
+  will-change: transform;
+}
+.leaflet-cluster-anim .leaflet-marker-shadow {
+  transition: transform 0.2s ease-out, opacity 0.2s ease-out;
+}
 @keyframes locpulse {
   0%   { transform: scale(1);   opacity: 0.8; }
   100% { transform: scale(3);   opacity: 0; }
@@ -904,7 +927,6 @@ input.fi::placeholder, textarea.fi::placeholder { color: var(--text3); }
   <div class="search-bar">
     <input class="search-input" id="search-input" type="text" placeholder="🔍 Buscar dirección..." onkeypress="if(event.key==='Enter')searchAddress()">
     <button class="search-btn" onclick="searchAddress()" title="Buscar">🔍</button>
-    <button class="search-btn" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border2)" onclick="openNearby()" title="Hidrantes cercanos">📡</button>
   </div>
 
   <!-- Map -->
@@ -1008,7 +1030,10 @@ input.fi::placeholder, textarea.fi::placeholder { color: var(--text3); }
     <img id="photo-preview" class="photo-preview">
     <label class="photo-btn" for="photo-input">📷 Añadir foto del hidrante</label>
     <input id="photo-input" type="file" accept="image/*" capture="environment" style="display:none" onchange="handlePhoto(this)">
-    <div class="loc-display">Coords: <span id="loc-coords" class="lc">— sin seleccionar —</span></div>
+    <div class="loc-display" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <span>Coords: <span id="loc-coords" class="lc">— sin seleccionar —</span></span>
+      <button onclick="enableMapPick()" style="padding:6px 12px;background:var(--red);color:#fff;border:none;border-radius:8px;font-size:12px;cursor:pointer;white-space:nowrap;flex-shrink:0">📍 Mover</button>
+    </div>
 
     <div class="fg">
       <label class="fl">Nombre en el mapa</label>
@@ -1382,18 +1407,49 @@ async function doLogout() {
    MAP
 ══════════════════════════ */
 function initMap() {
-  map_ = L.map('map', { zoomControl: true }).setView([40.347, -3.524], 14);
-  tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap',
-    maxZoom: 19
+  const renderer = L.canvas({ padding: 0.5 });
+  map_ = L.map('map', {
+    zoomControl: true,
+    preferCanvas: true,
+    renderer: renderer,
+    zoomAnimationThreshold: 4
+  }).setView([40.347, -3.524], 14);
+  tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap © CARTO',
+    subdomains: 'abcd',
+    maxZoom: 19,
+    detectRetina: true
+  }).addTo(map_);
+
+  // Marker cluster group for performance
+  cluster = L.markerClusterGroup({
+    maxClusterRadius: 60,
+    spiderfyOnMaxZoom: true,
+    showCoverageOnHover: false,
+    zoomToBoundsOnClick: true,
+    animate: false,
+    animateAddingMarkers: false,
+    removeOutsideVisibleBounds: true,
+    chunkedLoading: true,
+    chunkInterval: 200,
+    chunkDelay: 50,
+    iconCreateFunction: function(c) {
+      const n = c.getChildCount();
+      return L.divIcon({
+        html: '<div style="background:var(--red,#c0392b);color:#fff;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.4)">'+n+'</div>',
+        className:'', iconSize:[36,36]
+      });
+    }
   }).addTo(map_);
 
   // Draw sector polygons
   SECTOR_POLYGONS.forEach(s => {
     L.polygon(s.coords, {
-      color: s.color, weight: 2,
-      fillColor: s.color, fillOpacity: 0.18,
-      dashArray: '6,4'
+      color: s.color, weight: 1.5,
+      fillColor: s.color, fillOpacity: 0.15,
+      dashArray: '6,4',
+      smoothFactor: 2.0,
+      interactive: false
     }).addTo(map_).bindTooltip(s.name, {permanent:false, className:'sector-tooltip'});
   });
 
@@ -1409,6 +1465,7 @@ function initMap() {
     });
     document.getElementById('loc-coords').textContent = selLat.toFixed(6)+', '+selLng.toFixed(6);
     document.getElementById('map-banner').classList.remove('show');
+    // Reopen form (works for both add and edit)
     openSheet('sheet-form');
   });
 }
@@ -1487,13 +1544,14 @@ function updateMarker(h) {
     markers[h.id].setLatLng([h.lat, h.lng]);
     markers[h.id].off('click').on('click', () => openDetail(h.id));
   } else addMarker(h);
+  // Auto-refresh detail if open
   // Auto-refresh detail if it's open
   if (openDetailId === h.id && document.getElementById('sheet-detail').classList.contains('open')) {
     renderDetail(h.id);
   }
 }
 function removeMarker(id) {
-  if (markers[id]) { map_.removeLayer(markers[id]); delete markers[id]; }
+  if (markers[id]) { cluster.removeLayer(markers[id]); delete markers[id]; }
 }
 
 /* ══════════════════════════
@@ -2148,15 +2206,7 @@ async function seedHydrants() {
    SECTOR & OPERATIVITY COLORS
 ══════════════════════════ */
 
-const SECTOR_POLYGONS = [
-  {"name":"Sector Azul","color":"#01579b","coords":[[40.3269693,-3.5219147],[40.3272596,-3.5209275],[40.3274374,-3.5205735],[40.3276419,-3.5202651],[40.3278566,-3.5203348],[40.3298761,-3.5213707],[40.3312829,-3.5214243],[40.3328777,-3.5212419],[40.3349387,-3.5213385],[40.3362145,-3.5217998],[40.3376047,-3.5227547],[40.3390604,-3.5234628],[40.3407368,-3.5243748],[40.341299,-3.524698],[40.3371458,-3.5368003],[40.3367277,-3.5364335],[40.3362278,-3.5360881],[40.3354079,-3.5351614],[40.3344061,-3.5326214],[40.3341567,-3.5315378],[40.3337764,-3.5304971],[40.3276259,-3.5227724],[40.3269693,-3.5219147]]},
-  {"name":"Sector Morado","color":"#673ab7","coords":[[40.3571808,-3.547371],[40.3565809,-3.5479397],[40.3561353,-3.5481167],[40.3556611,-3.5483152],[40.3554281,-3.5485298],[40.3550152,-3.5500426],[40.3535558,-3.5519576],[40.3506318,-3.5493208],[40.3474184,-3.5454584],[40.3447527,-3.5418106],[40.3437551,-3.5408772],[40.3422055,-3.5394181],[40.3417107,-3.5390855],[40.3411587,-3.5389085],[40.3405781,-3.5388119],[40.3395764,-3.5383184],[40.3371458,-3.5368003],[40.341299,-3.524698],[40.3429619,-3.5256262],[40.3440903,-3.5265167],[40.3448999,-3.5274018],[40.3458158,-3.5287404],[40.3467398,-3.5307843],[40.3477987,-3.5333109],[40.3491233,-3.5356176],[40.3504111,-3.5371894],[40.3520954,-3.5396141],[40.353003,-3.5407889],[40.3538328,-3.5415828],[40.3545932,-3.5421193],[40.3566453,-3.5433155],[40.3564123,-3.5446191],[40.3571686,-3.5453916],[40.35714,-3.5454559],[40.3568211,-3.5459495],[40.3562815,-3.545574],[40.3560281,-3.5463786],[40.3571808,-3.547371]]},
-  {"name":"Sector Naranja","color":"#e65100","coords":[[40.363934,-3.5361067],[40.3618294,-3.5400684],[40.3604519,-3.542992],[40.3571808,-3.547371],[40.3560281,-3.5463786],[40.3562815,-3.545574],[40.3568211,-3.5459495],[40.3571686,-3.5453916],[40.3564123,-3.5446191],[40.3566453,-3.5433155],[40.3541281,-3.5417743],[40.353003,-3.5407889],[40.3526809,-3.5403473],[40.3503507,-3.5371072],[40.3490997,-3.5355676],[40.3477987,-3.5333109],[40.3458158,-3.5287404],[40.3448999,-3.5274018],[40.3440903,-3.5265167],[40.3429619,-3.5256262],[40.341299,-3.524698],[40.3442903,-3.5157967],[40.3461741,-3.5169197],[40.3484169,-3.5185571],[40.351107,-3.5218294],[40.3520227,-3.5233743],[40.3533636,-3.5265715],[40.3545246,-3.5285671],[40.3563724,-3.5302086],[40.3605173,-3.533438],[40.3611979,-3.5339771],[40.3620277,-3.5346235],[40.363934,-3.5361067]]},
-  {"name":"Sector Verde","color":"#7cb342","coords":[[40.3461741,-3.5169197],[40.3442903,-3.5157967],[40.3430985,-3.5193426],[40.3423687,-3.5215017],[40.3413015,-3.5246802],[40.337826,-3.5227597],[40.3363866,-3.5218799],[40.3361576,-3.521719],[40.3350045,-3.5213006],[40.3329354,-3.5211718],[40.3313651,-3.5213542],[40.3298929,-3.5212899],[40.3278072,-3.5202599],[40.3276109,-3.5201633],[40.3268584,-3.5218048],[40.322286,-3.5154319],[40.3233821,-3.5109151],[40.3241919,-3.5096062],[40.32465,-3.5089517],[40.3255415,-3.5074389],[40.3260977,-3.5065484],[40.3285597,-3.5062051],[40.3308498,-3.5065484],[40.3322647,-3.507396],[40.3313978,-3.5097885],[40.3356997,-3.512224],[40.3374252,-3.5125888],[40.3399931,-3.5131038],[40.3409908,-3.509177],[40.342201,-3.510443],[40.3434031,-3.5122562],[40.3443598,-3.5133183],[40.3454392,-3.512224],[40.3463469,-3.5129321],[40.3465268,-3.513844],[40.3461741,-3.5169197]]},
-  {"name":"Sector Amarillo","color":"#ffd600","coords":[[40.363934,-3.5361067],[40.3545246,-3.5285671],[40.3533636,-3.5265715],[40.3520227,-3.5233743],[40.351107,-3.5218294],[40.3484169,-3.5185571],[40.3461741,-3.5169197],[40.3474599,-3.5156984],[40.3483675,-3.5135956],[40.3500274,-3.5147006],[40.3501418,-3.517061],[40.3512456,-3.5168464],[40.3520796,-3.512984],[40.3534778,-3.512512],[40.3548922,-3.5116107],[40.355767,-3.5121365],[40.3568299,-3.5138853],[40.3576638,-3.5146041],[40.3588247,-3.5147436],[40.3628142,-3.5150869],[40.363599,-3.5155804],[40.3642938,-3.5169215],[40.3621193,-3.5207946],[40.3598221,-3.5250969],[40.358187,-3.528219],[40.3589146,-3.5292275],[40.3623727,-3.5263092],[40.3638687,-3.5281331],[40.3670405,-3.5268457],[40.3681767,-3.5308127],[40.3660657,-3.5312231],[40.3649989,-3.5334976],[40.363934,-3.5361067]]},
-  {"name":"Sector Rosa","color":"#c2185b","coords":[[40.3535558,-3.5519576],[40.3571808,-3.547371],[40.363934,-3.5361067],[40.3684403,-3.5303808],[40.3686473,-3.5239523],[40.370184,-3.5239845],[40.3719414,-3.523432],[40.3728283,-3.5217476],[40.3738581,-3.5216456],[40.3757667,-3.5232174],[40.3758813,-3.5247554],[40.3751192,-3.5331641],[40.3749578,-3.5340787],[40.3715432,-3.5418598],[40.3716903,-3.5413663],[40.37008,-3.5460759],[40.3724586,-3.5492302],[40.3715023,-3.5504962],[40.3696672,-3.5507751],[40.3675624,-3.5522289],[40.3632829,-3.5558982],[40.3594775,-3.5553054],[40.3572823,-3.5529799],[40.3535558,-3.5519576]]},
-  {"name":"Sector Rojo","color":"#a52714","coords":[[40.3724586,-3.5492302],[40.37008,-3.5460759],[40.3714696,-3.5430186],[40.3715432,-3.5418598],[40.3749578,-3.5340787],[40.3759917,-3.5232587],[40.3793357,-3.5262386],[40.3823596,-3.5263244],[40.3837816,-3.5299507],[40.3860535,-3.5322682],[40.3851546,-3.5348002],[40.383798,-3.5390703],[40.3803982,-3.5399715],[40.3786492,-3.5476962],[40.3754289,-3.5495416],[40.3739577,-3.5501424],[40.3724586,-3.5492302]]}
-];
+const SECTOR_POLYGONS = [{"name":"Sector Azul","color":"#01579b","coords":[[40.3269693,-3.5219147],[40.3276419,-3.5202651],[40.3298761,-3.5213707],[40.3349387,-3.5213385],[40.341299,-3.524698],[40.3371458,-3.5368003],[40.3354079,-3.5351614],[40.3337764,-3.5304971],[40.3269693,-3.5219147]]},{"name":"Sector Morado","color":"#673ab7","coords":[[40.3571808,-3.547371],[40.3554281,-3.5485298],[40.3550152,-3.5500426],[40.3535558,-3.5519576],[40.3506318,-3.5493208],[40.3447527,-3.5418106],[40.3422055,-3.5394181],[40.3371458,-3.5368003],[40.341299,-3.524698],[40.3448999,-3.5274018],[40.3491233,-3.5356176],[40.353003,-3.5407889],[40.3566453,-3.5433155],[40.3564123,-3.5446191],[40.3571686,-3.5453916],[40.3568211,-3.5459495],[40.3562815,-3.545574],[40.3560281,-3.5463786],[40.3571808,-3.547371]]},{"name":"Sector Naranja","color":"#e65100","coords":[[40.363934,-3.5361067],[40.3604519,-3.542992],[40.3571808,-3.547371],[40.3560281,-3.5463786],[40.3562815,-3.545574],[40.3568211,-3.5459495],[40.3571686,-3.5453916],[40.3564123,-3.5446191],[40.3566453,-3.5433155],[40.353003,-3.5407889],[40.3490997,-3.5355676],[40.3448999,-3.5274018],[40.341299,-3.524698],[40.3442903,-3.5157967],[40.3484169,-3.5185571],[40.351107,-3.5218294],[40.3545246,-3.5285671],[40.363934,-3.5361067]]},{"name":"Sector Verde","color":"#7cb342","coords":[[40.3461741,-3.5169197],[40.3442903,-3.5157967],[40.3413015,-3.5246802],[40.3350045,-3.5213006],[40.3298929,-3.5212899],[40.3276109,-3.5201633],[40.3268584,-3.5218048],[40.322286,-3.5154319],[40.3233821,-3.5109151],[40.3260977,-3.5065484],[40.3285597,-3.5062051],[40.3308498,-3.5065484],[40.3322647,-3.507396],[40.3313978,-3.5097885],[40.3356997,-3.512224],[40.3399931,-3.5131038],[40.3409908,-3.509177],[40.3443598,-3.5133183],[40.3454392,-3.512224],[40.3463469,-3.5129321],[40.3461741,-3.5169197]]},{"name":"Sector Amarillo","color":"#ffd600","coords":[[40.363934,-3.5361067],[40.3545246,-3.5285671],[40.351107,-3.5218294],[40.3484169,-3.5185571],[40.3461741,-3.5169197],[40.3474599,-3.5156984],[40.3483675,-3.5135956],[40.3500274,-3.5147006],[40.3501418,-3.517061],[40.3512456,-3.5168464],[40.3520796,-3.512984],[40.3548922,-3.5116107],[40.3576638,-3.5146041],[40.3628142,-3.5150869],[40.363599,-3.5155804],[40.3642938,-3.5169215],[40.358187,-3.528219],[40.3589146,-3.5292275],[40.3623727,-3.5263092],[40.3638687,-3.5281331],[40.3670405,-3.5268457],[40.3681767,-3.5308127],[40.3660657,-3.5312231],[40.363934,-3.5361067]]},{"name":"Sector Rosa","color":"#c2185b","coords":[[40.3535558,-3.5519576],[40.3571808,-3.547371],[40.363934,-3.5361067],[40.3684403,-3.5303808],[40.3686473,-3.5239523],[40.3719414,-3.523432],[40.3728283,-3.5217476],[40.3738581,-3.5216456],[40.3757667,-3.5232174],[40.3751192,-3.5331641],[40.37008,-3.5460759],[40.3724586,-3.5492302],[40.3715023,-3.5504962],[40.3696672,-3.5507751],[40.3632829,-3.5558982],[40.3594775,-3.5553054],[40.3572823,-3.5529799],[40.3535558,-3.5519576]]},{"name":"Sector Rojo","color":"#a52714","coords":[[40.3724586,-3.5492302],[40.37008,-3.5460759],[40.3749578,-3.5340787],[40.3759917,-3.5232587],[40.3793357,-3.5262386],[40.3823596,-3.5263244],[40.3837816,-3.5299507],[40.3860535,-3.5322682],[40.383798,-3.5390703],[40.3803982,-3.5399715],[40.3786492,-3.5476962],[40.3739577,-3.5501424],[40.3724586,-3.5492302]]}];
 const SECTOR_COLOR = {
   azul:'#01579b', morado:'#673ab7', naranja:'#e65100',
   verde:'#7cb342', amarillo:'#ffd600', rosa:'#c2185b',
@@ -2282,6 +2332,14 @@ function updateRacor() {
   const tipo = document.getElementById('f-type').value;
   document.getElementById('f-racor').value = tipo === 'torre' ? '70/70B // 100M' : '100M';
 }
+
+function enableMapPick() {
+  picking = true;
+  document.getElementById('map-banner').classList.add('show');
+  closeSheets();
+  // Reopen form after map click (already handled in map_.on('click'))
+}
+
 function toggleLegend() {
   document.getElementById('legend-panel').classList.toggle('show');
   document.getElementById('btn-legend').classList.toggle('active');
@@ -2333,13 +2391,18 @@ function exportPDF() {
    FILTER SYSTEM
 ══════════════════════════ */
 let activeFilter = 'all';
+let filterTimer = null;
 function setFilter(el, f) {
   document.querySelectorAll('.fchip').forEach(c => c.classList.remove('on'));
   el.classList.add('on');
   activeFilter = f;
-  applyFilters();
+  clearTimeout(filterTimer);
+  filterTimer = setTimeout(applyFilters, 50);
 }
 function applyFilters() {
+  if (!cluster) return;
+  cluster.clearLayers();
+  const toAdd = [];
   Object.values(hydrants).forEach(h => {
     const m = markers[h.id];
     if (!m || h.approved === false) return;
@@ -2347,8 +2410,9 @@ function applyFilters() {
       || h.operatividad === activeFilter
       || h.tipo === activeFilter
       || h.sector === activeFilter;
-    show ? m.addTo(map_) : m.remove();
+    if (show) toAdd.push(m);
   });
+  cluster.addLayers(toAdd);
 }
 
 /* ══════════════════════════
@@ -2496,8 +2560,8 @@ function toggleSatellite() {
     btn.classList.add('active');
     btn.title = 'Vista mapa';
   } else {
-    tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap', maxZoom: 19
+    tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      attribution: '© OpenStreetMap © CARTO', subdomains: 'abcd', maxZoom: 19
     }).addTo(map_);
     btn.classList.remove('active');
     btn.title = 'Vista satélite';

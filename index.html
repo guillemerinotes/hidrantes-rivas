@@ -1196,8 +1196,8 @@ try {
   firebase.initializeApp(FIREBASE_CONFIG);
   db   = firebase.firestore();
   auth = firebase.auth();
-  // Enable offline persistence
-  db.enablePersistence().catch(() => {});
+  // Enable offline persistence (non-blocking)
+  try { db.enablePersistence({ synchronizeTabs: true }).catch(() => {}); } catch(e) {}
 } catch(e) {
   console.error('Firebase init error:', e);
 }
@@ -1238,7 +1238,15 @@ function showAdminScreen() {
 /* ══════════════════════════
    AUTH
 ══════════════════════════ */
+// Safety timeout - if Firebase takes too long, show login
+const loadingTimeout = setTimeout(() => {
+  if (document.getElementById('screen-loading').classList.contains('active')) {
+    showScreen('screen-login');
+  }
+}, 8000);
+
 auth.onAuthStateChanged(async user => {
+  clearTimeout(loadingTimeout);
   if (!user) {
     me = meData = null;
     // Only redirect to login if not already on loggedout screen
